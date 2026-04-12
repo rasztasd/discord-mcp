@@ -1,18 +1,21 @@
 package dev.saseq.services;
 
-import net.dv8tion.jda.api.JDA;
-import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.User;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
+import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.User;
 
 @Service
 public class UserService {
@@ -195,6 +198,87 @@ public class UserService {
         return "**Retrieved " + messages.size() + " messages:** \n" + String.join("\n", formatedMessages);
     }
 
+    @Tool(name = "list_guild_members", description = "List members of a Discord server. Returns guild member objects sorted by user ID. Supports pagination via 'after' (provide the last returned user ID to get the next page). Requires GUILD_MEMBERS privileged intent to be enabled.")
+    public String listGuildMembers(
+            @ToolParam(description = "Discord server ID", required = false) String guildId,
+            @ToolParam(description = "Max number of members to return (1-1000, default 1000)", required = false) String limit,
+            @ToolParam(description = "Return members with user ID greater than this snowflake, used for pagination (default 0)", required = false) String after) {
+        guildId = resolveGuildId(guildId);
+        if (guildId == null || guildId.isEmpty()) {
+            throw new IllegalArgumentException("guildId cannot be null");
+        }
+        Guild guild = jda.getGuildById(guildId);
+        if (guild == null) {
+            throw new IllegalArgumentException("Discord server not found by guildId");
+        }
+        int maxLimit = 1000;
+        if (limit != null && !limit.isEmpty()) {
+            maxLimit = Integer.parseInt(limit);
+            if (maxLimit < 1 || maxLimit > 1000) {
+                throw new IllegalArgumentException("limit must be between 1 and 1000");
+            }
+        }
+        List<Member> members = guild.getMemberCache().stream().collect(Collectors.toCollection(ArrayList::new));
+        members.sort(Comparator.comparingLong(Member::getIdLong));
+        if (after != null && !after.isEmpty()) {
+            long afterId = Long.parseLong(after);
+            members = members.stream()
+                    .filter(m -> Long.parseLong(m.getId()) > afterId)
+                    .toList();
+        }
+        final int finalLimit = maxLimit;
+        members = members.stream().limit(finalLimit).toList();
+        if (members.isEmpty()) {
+            return "No members found.";
+        }
+        String result = members.stream()
+                .map(this::formatMember)
+                .collect(Collectors.joining("\n"));
+        return "**Found " + members.size() + " member(s):**\n" + result;
+    }
+
+    @Tool(name = "search_guild_members", description = "Search guild members whose username or nickname starts with a given query string.")
+    public String searchGuildMembers(
+            @ToolParam(description = "Discord server ID", required = false) String guildId,
+            @ToolParam(description = "Query string to match username(s) and nickname(s) against (case-insensitive prefix match)") String query,
+            @ToolParam(description = "Max number of members to return (1-1000, default 1000)", required = false) String limit) {
+        if (query == null || query.isEmpty()) {
+            throw new IllegalArgumentException("query cannot be null");
+        }
+        guildId = resolveGuildId(guildId);
+        if (guildId == null || guildId.isEmpty()) {
+            throw new IllegalArgumentException("guildId cannot be null");
+        }
+        Guild guild = jda.getGuildById(guildId);
+        if (guild == null) {
+            throw new IllegalArgumentException("Discord server not found by guildId");
+        }
+        int maxLimit = 1000;
+        if (limit != null && !limit.isEmpty()) {
+            maxLimit = Integer.parseInt(limit);
+            if (maxLimit < 1 || maxLimit > 1000) {
+                throw new IllegalArgumentException("limit must be between 1 and 1000");
+            }
+        }
+        final String queryLower = query.toLowerCase();
+        final int finalLimit = maxLimit;
+        List<Member> members = guild.getMemberCache().stream()
+                .filter(m -> {
+                    String username = m.getUser().getName().toLowerCase();
+                    String nick = m.getNickname();
+                    return username.startsWith(queryLower) || (nick != null && nick.toLowerCase().startsWith(queryLower));
+                })
+                .limit(finalLimit)
+                .toList();
+        if (members.isEmpty()) {
+            return "No members found matching query: " + query;
+        }
+        String result = members.stream()
+                .map(this::formatMember)
+                .collect(Collectors.joining("\n"));
+        return "**Found " + members.size() + " member(s) matching \"" + query + "\":**\n" + result;
+    }
+
     private User getUserById(String userId) {
         return jda.getGuilds().stream()
                 .map(guild -> guild.retrieveMemberById(userId).complete())
@@ -202,6 +286,23 @@ public class UserService {
                 .map(Member::getUser)
                 .findFirst()
                 .orElse(null);
+    }
+
+    private String formatMember(Member member) {
+        User user = member.getUser();
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("- (ID: %s) **%s**", user.getId(), user.getName()));
+        if (member.getNickname() != null) {
+            sb.append(String.format(" (nick: %s)", member.getNickname()));
+        }
+        sb.append(String.format(", joined: %s", member.getTimeJoined().toString()));
+        if (!member.getRoles().isEmpty()) {
+            String roles = member.getRoles().stream()
+                    .map(r -> r.getName())
+                    .collect(Collectors.joining(", "));
+            sb.append(String.format(", roles: [%s]", roles));
+        }
+        return sb.toString();
     }
 
     private List<String> formatMessages(List<Message> messages) {

@@ -16,7 +16,7 @@ COPY --from=build /app/target/*.jar app.jar
 ENV DISCORD_TOKEN=""
 ENV DISCORD_GUILD_ID=""
 
-EXPOSE 8085
+EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD wget -q -O - http://127.0.0.1:8085/actuator/health | grep -q '"status":"UP"' || exit 1
