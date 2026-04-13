@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.springframework.ai.tool.annotation.Tool;
@@ -219,7 +218,12 @@ public class UserService {
                 throw new IllegalArgumentException("limit must be between 1 and 1000");
             }
         }
-        List<Member> members = guild.getMembers().stream().collect(Collectors.toCollection(ArrayList::new));
+        List<Member> members;
+        try {
+            members = guild.findMembers(m -> true).get().stream().collect(Collectors.toCollection(ArrayList::new));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load guild members: " + e.getMessage(), e);
+        }
         members.sort(Comparator.comparingLong(Member::getIdLong));
         if (after != null && !after.isEmpty()) {
             long afterId = Long.parseLong(after);
@@ -238,59 +242,58 @@ public class UserService {
         return "**Found " + members.size() + " member(s):**\n" + result;
     }
 
-@Tool(name = "search_guild_members", description = "Search guild members whose username or nickname starts with a given query string.")
-public void searchGuildMembers(
-        @ToolParam(description = "Discord server ID", required = false) String guildId,
-        @ToolParam(description = "Query string to match username(s) and nickname(s) against (case-insensitive prefix match)") String query,
-        @ToolParam(description = "Max number of members to return (1-1000, default 1000)", required = false) String limit,
-        Consumer<String> callback) {
+    @Tool(name = "search_guild_members", description = "Search guild members whose username or nickname starts with a given query string.")
+    public String searchGuildMembers(
+            @ToolParam(description = "Discord server ID", required = false) String guildId,
+            @ToolParam(description = "Query string to match username(s) and nickname(s) against (case-insensitive prefix match)") String query,
+            @ToolParam(description = "Max number of members to return (1-1000, default 1000)", required = false) String limit) {
 
-    if (query == null || query.isEmpty()) {
-        throw new IllegalArgumentException("query cannot be null");
-    }
-
-    guildId = resolveGuildId(guildId);
-    if (guildId == null || guildId.isEmpty()) {
-        throw new IllegalArgumentException("guildId cannot be null");
-    }
-
-    Guild guild = jda.getGuildById(guildId);
-    if (guild == null) {
-        throw new IllegalArgumentException("Discord server not found by guildId");
-    }
-
-    int maxLimit = 1000;
-    if (limit != null && !limit.isEmpty()) {
-        maxLimit = Integer.parseInt(limit);
-        if (maxLimit < 1 || maxLimit > 1000) {
-            throw new IllegalArgumentException("limit must be between 1 and 1000");
+        if (query == null || query.isEmpty()) {
+            throw new IllegalArgumentException("query cannot be null");
         }
-    }
 
-    final String queryLower = query.toLowerCase();
-    final int finalLimit = maxLimit;
+        guildId = resolveGuildId(guildId);
+        if (guildId == null || guildId.isEmpty()) {
+            throw new IllegalArgumentException("guildId cannot be null");
+        }
 
-    guild.findMembers(m -> {
-        String username = m.getUser().getName();
-        String nick = m.getNickname();
-        return username != null && username.toLowerCase().startsWith(queryLower)
-                || nick != null && nick.toLowerCase().startsWith(queryLower);
-    }).onSuccess(found -> {
-        List<Member> members = found.stream().limit(finalLimit).toList();
+        Guild guild = jda.getGuildById(guildId);
+        if (guild == null) {
+            throw new IllegalArgumentException("Discord server not found by guildId");
+        }
+
+        int maxLimit = 1000;
+        if (limit != null && !limit.isEmpty()) {
+            maxLimit = Integer.parseInt(limit);
+            if (maxLimit < 1 || maxLimit > 1000) {
+                throw new IllegalArgumentException("limit must be between 1 and 1000");
+            }
+        }
+
+        final String queryLower = query.toLowerCase();
+        final int finalLimit = maxLimit;
+
+        List<Member> members;
+        try {
+            members = guild.findMembers(m -> {
+                String username = m.getUser().getName();
+                String nick = m.getNickname();
+                return username != null && username.toLowerCase().startsWith(queryLower)
+                        || nick != null && nick.toLowerCase().startsWith(queryLower);
+            }).get().stream().limit(finalLimit).toList();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to search guild members: " + e.getMessage(), e);
+        }
 
         if (members.isEmpty()) {
-            callback.accept("No members found matching query: " + query);
-            return;
+            return "No members found matching query: " + query;
         }
 
         String result = members.stream()
                 .map(this::formatMember)
                 .collect(Collectors.joining("\n"));
 
-        callback.accept("**Found " + members.size() + " member(s) matching \"" + query + "\":**\n" + result);
-    }).onError(error -> {
-        callback.accept("Failed to search guild members: " + error.getMessage());
-    });
+        return "**Found " + members.size() + " member(s) matching \"" + query + "\":**\n" + result;
 }
 
     private User getUserById(String userId) {
