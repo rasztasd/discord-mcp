@@ -1,0 +1,7 @@
+{
+  "channelId": "1494324881247047882",
+  "roleId": "1494324869066919976",
+  "allowPermissions": "VIEW_CHANNEL,MESSAGE_SEND",
+  "denyPermissions": "MANAGE_CHANNEL",
+  "reason": "Manual MCP harness test"
+}

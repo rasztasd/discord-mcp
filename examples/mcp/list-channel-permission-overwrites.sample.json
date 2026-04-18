@@ -1,0 +1,4 @@
+{
+  "guildId": "YOUR_GUILD_ID_IF_NOT_SET_IN_ENV",
+  "channelId": "YOUR_CHANNEL_ID"
+}

@@ -245,6 +245,34 @@ Remote MCP Connector:
 </details>
 
 
+
+## Local MCP Tool Testing
+
+If you want to test this server the same way an MCP agent would, you do not need Postman.
+Use the local PowerShell harness in `scripts/mcp-agent-tester.ps1`.
+
+It performs the MCP lifecycle steps for you:
+- sends `initialize`
+- sends `notifications/initialized`
+- stores the returned `Mcp-Session-Id` in a temp session file
+- calls tools over the same `/mcp` endpoint with proper MCP headers
+
+Examples:
+
+```powershell
+pwsh ./scripts/mcp-agent-tester.ps1 init
+pwsh ./scripts/mcp-agent-tester.ps1 list-tools
+pwsh ./scripts/mcp-agent-tester.ps1 call-tool -ToolName upsert_role_channel_permissions -ArgumentsFile ./examples/mcp/upsert-role-channel-permissions.sample.json
+pwsh ./scripts/mcp-agent-tester.ps1 call-tool -ToolName list_channel_permission_overwrites -ArgumentsFile ./examples/mcp/list-channel-permission-overwrites.sample.json
+pwsh ./scripts/mcp-agent-tester.ps1 close
+```
+
+Notes:
+- Default MCP endpoint: `http://localhost:8085/mcp`
+- Default session file: system temp directory as `discord-mcp-session.json`
+- Override endpoint or session file with `-Endpoint` and `-SessionFile`
+- If `DISCORD_GUILD_ID` is set in the server environment, `guildId` can be omitted from the JSON arguments
+
 ## 🛠️ Available Tools
 
 #### Server Information

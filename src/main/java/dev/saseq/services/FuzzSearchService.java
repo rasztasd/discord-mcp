@@ -105,7 +105,14 @@ public class FuzzSearchService {
 
         record Result(Member member, int score) {}
 
-        List<Result> results = guild.getMembers().stream()
+        List<Member> allMembers;
+        try {
+            allMembers = guild.findMembers(m -> true).get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load guild members: " + e.getMessage(), e);
+        }
+
+        List<Result> results = allMembers.stream()
                 .map(m -> new Result(m, bestScore(query,
                         m.getNickname(),
                         m.getUser().getName(),
