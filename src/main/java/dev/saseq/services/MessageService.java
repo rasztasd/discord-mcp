@@ -11,12 +11,18 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class MessageService {
 
     private final JDA jda;
+    private String formatMessagesJson;
 
     public MessageService(JDA jda) {
         this.jda = jda;
@@ -152,6 +158,27 @@ public class MessageService {
         List<Message> messages = channel.getHistory().retrievePast(limit).complete();
         List<String> formatedMessages = formatMessages(messages);
         return "**Retrieved " + messages.size() + " messages:** \n" + String.join("\n", formatedMessages);
+    }
+
+    @Tool(name = "read_messages_json", description = "Read recent message history from a specific channel and return as JSON")
+    public String readMessagesJson(@ToolParam(description = "Discord channel ID") String channelId,
+                                   @ToolParam(description = "Number of messages to retrieve", required = false) String count) {
+        if (channelId == null || channelId.isEmpty()) {
+            throw new IllegalArgumentException("channelId cannot be null");
+        }
+        int limit = 100;
+        if (count != null) {
+            limit = Integer.parseInt(count);
+        }
+
+        ObjectMapper mapper = new ObjectMapper();
+        MessageChannel channel = getMessageChannelById(channelId);
+        if (channel == null) {
+            throw new IllegalArgumentException("Channel not found by channelId");
+        }
+        List<Message> messages = channel.getHistory().retrievePast(limit).complete();       
+        formatMessagesJson = formatMessagesJson(messages);
+        return formatMessagesJson;
     }
 
     /**
@@ -314,6 +341,29 @@ public class MessageService {
 
                     return sb.toString();
                 }).toList();
+    }
+
+    private String formatMessagesJson(List<Message> messages) {
+        try {
+            List<Map<String, Object>> messageList = messages.stream().map(m -> Map.of(
+                    "id", m.getId(),
+                    "author", m.getAuthor().getName(),
+                    "timestamp", m.getTimeCreated().toString(),
+                    "content", m.getContentDisplay(),
+                    "attachments", m.getAttachments().stream().map(a -> Map.of(
+                            "id", a.getId(),
+                            "fileName", a.getFileName(),
+                            "size", formatFileSize(a.getSize()),
+                            "contentType", a.getContentType() != null ? a.getContentType() : "unknown",
+                            "url", a.getUrl()
+                    )).toList()
+            )).toList();
+            
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(messageList);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to convert messages to JSON", e);
+        }
     }
 
     private String formatFileSize(int bytes) {

@@ -69,6 +69,7 @@ public class DiscordMcpConfig {
         }
         return JDABuilder.createDefault(token)
                 .enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_VOICE_STATES, GatewayIntent.SCHEDULED_EVENTS)
+                .setRequestTimeoutRetry(true)                
                 .build()
                 .awaitReady();
     }

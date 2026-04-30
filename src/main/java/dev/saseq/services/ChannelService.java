@@ -6,13 +6,18 @@ import net.dv8tion.jda.api.entities.channel.concrete.Category;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
+import tools.jackson.databind.ObjectMapper;
+
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class ChannelService {
@@ -102,9 +107,32 @@ public class ChannelService {
         return "Retrieved " + channels.size() + " channels:\n" +
                 channels.stream()
                         .map(c -> "- " + c.getType().name() + " channel: " + c.getName() + " (ID: " + c.getId() + ")")
-                        .collect(Collectors.joining("\n"));
+                        .collect(Collectors.joining("\n"));                        
     }
 
+@Tool(name = "list_channels_json", description = "List of all channels in JSON format")
+public String listChannelsJson(@ToolParam(description = "Discord server ID", required = false) String guildId)
+        throws JsonProcessingException {
+
+    Guild guild = getGuild(guildId);
+    List<GuildChannel> channels = guild.getChannels();
+
+    if (channels.isEmpty()) {
+        throw new IllegalArgumentException("No channels found by guildId");
+    }
+
+    ObjectMapper mapper = new ObjectMapper();
+
+    List<Map<String, String>> result = channels.stream()
+            .map(c -> Map.of(
+                    "type", c.getType().name(),
+                    "name", c.getName(),
+                    "id", c.getId()
+            ))
+            .toList();
+
+    return mapper.writeValueAsString(result);
+}
     @Tool(name = "edit_text_channel", description = "Edit settings of a text channel (name, topic, nsfw, slowmode, category, position)")
     public String editTextChannel(@ToolParam(description = "Discord server ID", required = false) String guildId,
                                   @ToolParam(description = "Channel ID") String channelId,
