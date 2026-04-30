@@ -110,29 +110,29 @@ public class ChannelService {
                         .collect(Collectors.joining("\n"));                        
     }
 
-@Tool(name = "list_channels_json", description = "List of all channels in JSON format")
-public String listChannelsJson(@ToolParam(description = "Discord server ID", required = false) String guildId)
-        throws JsonProcessingException {
+    @Tool(name = "list_channels_json", description = "List of all channels in JSON format")
+    public String listChannelsJson(@ToolParam(description = "Discord server ID", required = false) String guildId)
+            throws JsonProcessingException {
 
-    Guild guild = getGuild(guildId);
-    List<GuildChannel> channels = guild.getChannels();
+        Guild guild = getGuild(guildId);
+        List<GuildChannel> channels = guild.getChannels();
 
-    if (channels.isEmpty()) {
-        throw new IllegalArgumentException("No channels found by guildId");
+        if (channels.isEmpty()) {
+            throw new IllegalArgumentException("No channels found by guildId");
+        }
+
+        ObjectMapper mapper = new ObjectMapper();
+
+        List<Map<String, String>> result = channels.stream()
+                .map(c -> Map.of(
+                        "type", c.getType().name(),
+                        "name", c.getName(),
+                        "id", c.getId()
+                ))
+                .toList();
+
+        return mapper.writeValueAsString(result);
     }
-
-    ObjectMapper mapper = new ObjectMapper();
-
-    List<Map<String, String>> result = channels.stream()
-            .map(c -> Map.of(
-                    "type", c.getType().name(),
-                    "name", c.getName(),
-                    "id", c.getId()
-            ))
-            .toList();
-
-    return mapper.writeValueAsString(result);
-}
     @Tool(name = "edit_text_channel", description = "Edit settings of a text channel (name, topic, nsfw, slowmode, category, position)")
     public String editTextChannel(@ToolParam(description = "Discord server ID", required = false) String guildId,
                                   @ToolParam(description = "Channel ID") String channelId,
