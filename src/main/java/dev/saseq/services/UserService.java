@@ -11,11 +11,17 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.PermissionOverride;
+import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.entities.channel.attribute.IPermissionContainer;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
+import net.dv8tion.jda.api.exceptions.ErrorResponseException;
 
 @Service
 public class UserService {
@@ -34,6 +40,29 @@ public class UserService {
             return defaultGuildId;
         }
         return guildId;
+    }
+
+    private Guild getGuild(String guildId) {
+        guildId = resolveGuildId(guildId);
+        if (guildId == null || guildId.isEmpty()) {
+            throw new IllegalArgumentException("guildId cannot be null");
+        }
+        Guild guild = jda.getGuildById(guildId);
+        if (guild == null) {
+            throw new IllegalArgumentException("Discord server not found by guildId");
+        }
+        return guild;
+    }
+
+    private Member getMember(Guild guild, String userId) {
+        if (userId == null || userId.isEmpty()) {
+            throw new IllegalArgumentException("userId cannot be null");
+        }
+        try {
+            return guild.retrieveMemberById(userId).complete();
+        } catch (ErrorResponseException e) {
+            throw new IllegalArgumentException("User not found in this server by userId");
+        }
     }
 
     /**
@@ -81,6 +110,62 @@ public class UserService {
             throw new IllegalArgumentException("Multiple users found with username '" + username + "'. List: " + userList + ". Please specify the full username#discriminator.");
         }
         return members.get(0).getUser().getId();
+    }
+
+    @Tool(name = "get_member_details", description = "Get detailed information about a server member, including roles, guild permissions, and optional channel-specific permissions and overwrite summaries")
+    public String getMemberDetails(
+            @ToolParam(description = "Discord server ID", required = false) String guildId,
+            @ToolParam(description = "Discord user ID") String userId,
+            @ToolParam(description = "Optional channel ID to include channel-specific permissions and overwrite summary", required = false) String channelId) {
+
+        Guild guild = getGuild(guildId);
+        Member member = getMember(guild, userId);
+        User user = member.getUser();
+
+        StringBuilder sb = new StringBuilder()
+                .append("Member details for **").append(user.getName()).append("** (ID: ").append(user.getId()).append(")\n")
+                .append("• Mention: <@").append(user.getId()).append(">\n")
+                .append("• Effective name: ").append(member.getEffectiveName()).append("\n")
+                .append("• Nickname: ").append(member.getNickname() != null ? member.getNickname() : "none").append("\n")
+                .append("• Joined: ").append(member.getTimeJoined()).append("\n")
+                .append("• Boosting since: ").append(member.isBoosting() ? member.getTimeBoosted() : "not boosting").append("\n")
+                .append("• Timed out until: ").append(member.isTimedOut() ? member.getTimeOutEnd() : "not timed out").append("\n")
+                .append("• Roles (").append(member.getRoles().size()).append("): ").append(formatRoles(member.getRoles())).append("\n")
+                .append("• Guild permissions: ").append(formatPermissionSet(member.getPermissions())).append("\n")
+                .append("• Guild explicit permissions: ").append(formatPermissionSet(member.getPermissionsExplicit()));
+
+        if (channelId != null && !channelId.isEmpty()) {
+            GuildChannel channel = guild.getGuildChannelById(channelId);
+            if (channel == null) {
+                throw new IllegalArgumentException("Channel not found by channelId");
+            }
+
+            sb.append("\nChannel context: **").append(channel.getName()).append("** (")
+                    .append(channel.getType().name()).append(", ID: ").append(channel.getId()).append(")\n")
+                    .append("• Effective channel permissions: ").append(formatPermissionSet(member.getPermissions(channel))).append("\n")
+                    .append("• Explicit channel permissions: ").append(formatPermissionSet(member.getPermissionsExplicit(channel)));
+
+            if (channel instanceof IPermissionContainer container) {
+                PermissionOverride everyoneOverride = container.getPermissionOverride(guild.getPublicRole());
+                List<PermissionOverride> roleOverwrites = member.getRoles().stream()
+                        .map(container::getPermissionOverride)
+                        .filter(Objects::nonNull)
+                        .toList();
+                PermissionOverride memberOverride = container.getPermissionOverride(member);
+
+                sb.append("\n• @everyone overwrite: ").append(formatOverrideCompact(everyoneOverride)).append("\n")
+                        .append("• Matching role overwrites: ")
+                        .append(roleOverwrites.isEmpty()
+                                ? "none"
+                                : roleOverwrites.stream().map(this::formatNamedOverrideCompact).collect(Collectors.joining("; ")))
+                        .append("\n")
+                        .append("• Direct member overwrite: ").append(formatOverrideCompact(memberOverride));
+            } else {
+                sb.append("\n• Channel overwrites: this channel type does not expose direct permission overrides");
+            }
+        }
+
+        return sb.toString();
     }
 
     /**
@@ -320,6 +405,56 @@ public class UserService {
             sb.append(String.format(", roles: [%s]", roles));
         }
         return sb.toString();
+    }
+
+    private String formatRoles(List<Role> roles) {
+        if (roles.isEmpty()) {
+            return "none";
+        }
+        return roles.stream()
+                .map(role -> role.getName() + " (ID: " + role.getId() + ")")
+                .collect(Collectors.joining(", "));
+    }
+
+    private String formatPermissionSet(java.util.Collection<Permission> permissions) {
+        long raw = Permission.getRaw(permissions);
+        String names = permissions.isEmpty()
+                ? "none"
+                : permissions.stream()
+                        .map(Permission::getName)
+                        .sorted()
+                        .collect(Collectors.joining(", "));
+        return raw + " (" + names + ")";
+    }
+
+    private String formatOverrideCompact(PermissionOverride override) {
+        if (override == null) {
+            return "none";
+        }
+        return String.format(
+                "allow=%d (%s), deny=%d (%s), inherit=%d (%s)",
+                override.getAllowedRaw(),
+                formatPermissionNames(override.getAllowedRaw()),
+                override.getDeniedRaw(),
+                formatPermissionNames(override.getDeniedRaw()),
+                override.getInheritRaw(),
+                formatPermissionNames(override.getInheritRaw())
+        );
+    }
+
+    private String formatNamedOverrideCompact(PermissionOverride override) {
+        String name = override.getRole() != null ? override.getRole().getName() : override.getId();
+        return String.format("%s (ID: %s, %s)", name, override.getId(), formatOverrideCompact(override));
+    }
+
+    private String formatPermissionNames(long raw) {
+        if (raw == 0) {
+            return "none";
+        }
+        return Permission.getPermissions(raw).stream()
+                .map(Permission::getName)
+                .sorted()
+                .collect(Collectors.joining(", "));
     }
 
     private List<String> formatMessages(List<Message> messages) {

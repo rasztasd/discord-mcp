@@ -280,6 +280,7 @@ Notes:
 
 #### User Management
 - [`get_user_id_by_name`](): Get a Discord user's ID by username in a guild for ping usage `<@id>`
+- [`get_member_details`](): Get detailed member info including roles, guild permissions, and optional channel-specific permission summary
 - [`send_private_message`](): Send a private message to a specific user
 - [`edit_private_message`](): Edit a private message from a specific user
 - [`delete_private_message`](): Delete a private message from a specific user
@@ -348,6 +349,7 @@ Notes:
 
 #### Channel Permission Overwrites
 - [`list_channel_permission_overwrites`](): List all permission overwrites for a channel with role/member breakdown
+- [`get_member_channel_overwrites`](): Show the channel overwrites that affect a specific member, including matching role and direct member overwrites
 - [`upsert_role_channel_permissions`](): Create or update permission overwrite for a role on a channel
 - [`upsert_member_channel_permissions`](): Create or update permission overwrite for a member on a channel
 - [`delete_channel_permission_overwrite`](): Delete a permission overwrite for a role or member from a channel

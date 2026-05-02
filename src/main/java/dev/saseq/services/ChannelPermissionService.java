@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -48,6 +49,15 @@ public class ChannelPermissionService {
         if (!(channel instanceof IPermissionContainer container))
             throw new IllegalArgumentException("Channel type does not support permission overwrites (threads are not supported)");
         return container;
+    }
+
+    private Member getMember(Guild guild, String userId) {
+        if (userId == null || userId.isEmpty()) throw new IllegalArgumentException("userId cannot be null");
+        try {
+            return guild.retrieveMemberById(userId).complete();
+        } catch (ErrorResponseException e) {
+            throw new IllegalArgumentException("User not found in this server by userId");
+        }
     }
 
     private long parsePermissions(String raw, String names) {
@@ -95,6 +105,50 @@ public class ChannelPermissionService {
                 }).collect(Collectors.joining("\n"));
     }
 
+    @Tool(name = "get_member_channel_overwrites", description = "Returns the channel permission overwrites that affect a specific member, including @everyone, matching role overwrites, and direct member overwrite")
+    public String getMemberChannelOverwrites(
+            @ToolParam(description = "Discord server ID", required = false) String guildId,
+            @ToolParam(description = "Channel ID") String channelId,
+            @ToolParam(description = "User ID") String userId) {
+
+        Guild guild = getGuild(guildId);
+        IPermissionContainer container = getPermissionContainer(guild, channelId);
+        Member member = getMember(guild, userId);
+
+        PermissionOverride everyoneOverride = container.getPermissionOverride(guild.getPublicRole());
+        List<PermissionOverride> roleOverwrites = member.getRoles().stream()
+                .map(container::getPermissionOverride)
+                .filter(Objects::nonNull)
+                .toList();
+        PermissionOverride memberOverride = container.getPermissionOverride(member);
+        long effectiveRaw = Permission.getRaw(member.getPermissions(container));
+        long explicitRaw = Permission.getRaw(member.getPermissionsExplicit(container));
+
+        StringBuilder sb = new StringBuilder()
+                .append("Permission overwrites affecting member **").append(member.getUser().getName())
+                .append("** (ID: ").append(member.getId()).append(") in channel **")
+                .append(container.getName()).append("** (ID: ").append(container.getId()).append(")\n")
+                .append("• Effective channel permissions: ").append(effectiveRaw).append(" (")
+                .append(formatPermissions(effectiveRaw)).append(")\n")
+                .append("• Explicit channel permissions: ").append(explicitRaw).append(" (")
+                .append(formatPermissions(explicitRaw)).append(")\n")
+                .append(formatPermissionOverride("@everyone role overwrite", everyoneOverride));
+
+        if (roleOverwrites.isEmpty()) {
+            sb.append("\n- Matching role overwrites: none");
+        } else {
+            sb.append("\n- Matching role overwrites (").append(roleOverwrites.size()).append("):\n")
+                    .append(roleOverwrites.stream()
+                            .map(override -> formatPermissionOverride(
+                                    "Role: " + (override.getRole() != null ? override.getRole().getName() : "Unknown Role"),
+                                    override))
+                            .collect(Collectors.joining("\n")));
+        }
+
+        sb.append("\n").append(formatPermissionOverride("Direct member overwrite", memberOverride));
+        return sb.toString();
+    }
+
     private String upsertPermissions(IPermissionContainer container, IPermissionHolder holder,
                                      String targetType, String targetName, String targetId,
                                      String allowRaw, String denyRaw, String allowPerms, String denyPerms, String reason) {
@@ -117,6 +171,23 @@ public class ChannelPermissionService {
 
         return String.format("Successfully set permission overwrite for %s **%s** (ID: %s):\n• Allow: %d (%s)\n• Deny: %d (%s)",
                 targetType, targetName, targetId, allow, formatPermissions(allow), deny, formatPermissions(deny));
+    }
+
+    private String formatPermissionOverride(String label, PermissionOverride override) {
+        if (override == null) {
+            return "- " + label + ": none";
+        }
+        return String.format(
+                "- %s (ID: %s)\n  • Allow: %d (%s)\n  • Deny: %d (%s)\n  • Inherit: %d (%s)",
+                label,
+                override.getId(),
+                override.getAllowedRaw(),
+                formatPermissions(override.getAllowedRaw()),
+                override.getDeniedRaw(),
+                formatPermissions(override.getDeniedRaw()),
+                override.getInheritRaw(),
+                formatPermissions(override.getInheritRaw())
+        );
     }
 
     @Tool(name = "upsert_role_channel_permissions", description = "Creates or updates permission overwrite for a role on a channel")
@@ -153,10 +224,7 @@ public class ChannelPermissionService {
 
         Guild guild = getGuild(guildId);
         IPermissionContainer container = getPermissionContainer(guild, channelId);
-        if (userId == null || userId.isEmpty()) throw new IllegalArgumentException("userId cannot be null");
-        Member member;
-        try { member = guild.retrieveMemberById(userId).complete(); }
-        catch (ErrorResponseException e) { throw new IllegalArgumentException("User not found in this server by userId"); }
+        Member member = getMember(guild, userId);
 
         return upsertPermissions(container, member, "member", member.getUser().getName(), member.getId(),
                 allowRaw, denyRaw, allowPermissions, denyPermissions, reason);
