@@ -18,11 +18,16 @@ import dev.saseq.services.FuzzSearchService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.requests.GatewayIntent;
+import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.MemberCachePolicy;
+import okhttp3.OkHttpClient;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.concurrent.TimeUnit;
 
 @Configuration
 public class DiscordMcpConfig {
@@ -64,12 +69,26 @@ public class DiscordMcpConfig {
     @Bean
     public JDA jda(@Value("${DISCORD_TOKEN:}") String token) throws InterruptedException {
         if (token == null || token.isEmpty()) {
-            System.err.println("ERROR: The environment variable DISCORD_TOKEN is not set. Please set it to run the application properly.");
+            System.err.println("ERROR: The environment variable DISCORD_TOKEN is not set.");
             System.exit(1);
         }
+
+        OkHttpClient.Builder httpClientBuilder = new OkHttpClient.Builder()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(900, TimeUnit.SECONDS)
+                .writeTimeout(300, TimeUnit.SECONDS)
+                .callTimeout(450, TimeUnit.SECONDS);
+
         return JDABuilder.createDefault(token)
-                .enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_VOICE_STATES, GatewayIntent.SCHEDULED_EVENTS)
-                .setRequestTimeoutRetry(true)                
+                .enableIntents(
+                        GatewayIntent.GUILD_MEMBERS,
+                        GatewayIntent.GUILD_VOICE_STATES,
+                        GatewayIntent.SCHEDULED_EVENTS
+                )
+                .setChunkingFilter(ChunkingFilter.ALL)
+                .setMemberCachePolicy(MemberCachePolicy.ALL)
+                .setHttpClientBuilder(httpClientBuilder)
+                .setRequestTimeoutRetry(true)
                 .build()
                 .awaitReady();
     }

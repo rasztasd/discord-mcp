@@ -36,6 +36,13 @@ public class FuzzSearchService {
         return guild;
     }
 
+    private List<Member> getCachedMembers(Guild guild) {
+        if (!guild.isLoaded()) {
+            throw new IllegalStateException("Guild members are still loading. Try again once the member cache has finished initializing.");
+        }
+        return guild.getMembers();
+    }
+
     // Rolling-array Levenshtein distance
     private int levenshtein(String a, String b) {
         int m = a.length(), n = b.length();
@@ -105,12 +112,7 @@ public class FuzzSearchService {
 
         record Result(Member member, int score) {}
 
-        List<Member> allMembers;
-        try {
-            allMembers = guild.findMembers(m -> true).get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load guild members: " + e.getMessage(), e);
-        }
+        List<Member> allMembers = getCachedMembers(guild);
 
         List<Result> results = allMembers.stream()
                 .map(m -> new Result(m, bestScore(query,
@@ -123,7 +125,7 @@ public class FuzzSearchService {
         if (results.isEmpty()) return "No members found.";
 
         return "Fuzz search results for \"" + query + "\" (" + results.size() + " members):\n" +
-                results.stream()
+                results.stream().limit(5)
                         .map(r -> {
                             String nick = r.member().getNickname();
                             String globalName = r.member().getUser().getGlobalName();

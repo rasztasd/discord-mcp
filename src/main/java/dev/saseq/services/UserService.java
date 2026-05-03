@@ -54,6 +54,13 @@ public class UserService {
         return guild;
     }
 
+    private List<Member> getCachedMembers(Guild guild) {
+        if (!guild.isLoaded()) {
+            throw new IllegalStateException("Guild members are still loading. Try again once the member cache has finished initializing.");
+        }
+        return guild.getMembers();
+    }
+
     private Member getMember(Guild guild, String userId) {
         if (userId == null || userId.isEmpty()) {
             throw new IllegalArgumentException("userId cannot be null");
@@ -303,12 +310,7 @@ public class UserService {
                 throw new IllegalArgumentException("limit must be between 1 and 1000");
             }
         }
-        List<Member> members;
-        try {
-            members = guild.findMembers(m -> true).get().stream().collect(Collectors.toCollection(ArrayList::new));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load guild members: " + e.getMessage(), e);
-        }
+        List<Member> members = new ArrayList<>(getCachedMembers(guild));
         members.sort(Comparator.comparingLong(Member::getIdLong));
         if (after != null && !after.isEmpty()) {
             long afterId = Long.parseLong(after);
@@ -358,17 +360,15 @@ public class UserService {
         final String queryLower = query.toLowerCase();
         final int finalLimit = maxLimit;
 
-        List<Member> members;
-        try {
-            members = guild.findMembers(m -> {
-                String username = m.getUser().getName();
-                String nick = m.getNickname();
-                return username != null && username.toLowerCase().startsWith(queryLower)
-                        || nick != null && nick.toLowerCase().startsWith(queryLower);
-            }).get().stream().limit(finalLimit).toList();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to search guild members: " + e.getMessage(), e);
-        }
+        List<Member> members = getCachedMembers(guild).stream()
+                .filter(m -> {
+                    String username = m.getUser().getName();
+                    String nick = m.getNickname();
+                    return username != null && username.toLowerCase().startsWith(queryLower)
+                            || nick != null && nick.toLowerCase().startsWith(queryLower);
+                })
+                .limit(finalLimit)
+                .toList();
 
         if (members.isEmpty()) {
             return "No members found matching query: " + query;
